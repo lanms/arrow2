@@ -1,3 +1,5 @@
+mod nested;
+
 use std::collections::VecDeque;
 
 use parquet2::{
@@ -253,8 +255,7 @@ pub(super) fn next_dict<
                 MaybeNext::More
             } else {
                 let (values, validity) = items.pop_front().unwrap();
-                let keys =
-                    PrimitiveArray::from_data(K::PRIMITIVE.into(), values.into(), validity.into());
+                let keys = finish_key(values, validity);
                 MaybeNext::Some(Ok(DictionaryArray::from_data(keys, dict.unwrap())))
             }
         }
@@ -265,7 +266,6 @@ pub(super) fn next_dict<
                 debug_assert!(values.len() <= chunk_size.unwrap_or(usize::MAX));
 
                 let keys = finish_key(values, validity);
-
                 MaybeNext::Some(Ok(DictionaryArray::from_data(keys, dict.unwrap())))
             } else {
                 MaybeNext::None
@@ -273,3 +273,5 @@ pub(super) fn next_dict<
         }
     }
 }
+
+pub use nested::next_dict as nested_next_dict;
