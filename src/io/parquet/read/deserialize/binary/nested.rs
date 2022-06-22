@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 
 use parquet2::{encoding::Encoding, page::DataPage, schema::Repetition};
 
+use crate::array::Array;
 use crate::{
     array::Offset, bitmap::MutableBitmap, datatypes::DataType, error::Result,
     io::parquet::read::DataPages,
@@ -140,7 +141,7 @@ impl<'a, O: Offset> utils::Decoder<'a> for BinaryDecoder<O> {
     }
 }
 
-pub struct ArrayIterator<O: Offset, A: TraitBinaryArray<O>, I: DataPages> {
+pub struct NestedIter<O: Offset, A: TraitBinaryArray<O>, I: DataPages> {
     iter: I,
     data_type: DataType,
     init: Vec<InitNested>,
@@ -150,7 +151,7 @@ pub struct ArrayIterator<O: Offset, A: TraitBinaryArray<O>, I: DataPages> {
     phantom_a: std::marker::PhantomData<A>,
 }
 
-impl<O: Offset, A: TraitBinaryArray<O>, I: DataPages> ArrayIterator<O, A, I> {
+impl<O: Offset, A: TraitBinaryArray<O>, I: DataPages> NestedIter<O, A, I> {
     pub fn new(
         iter: I,
         init: Vec<InitNested>,
@@ -169,7 +170,7 @@ impl<O: Offset, A: TraitBinaryArray<O>, I: DataPages> ArrayIterator<O, A, I> {
     }
 }
 
-impl<O: Offset, A: TraitBinaryArray<O>, I: DataPages> Iterator for ArrayIterator<O, A, I> {
+impl<O: Offset, A: TraitBinaryArray<O>, I: DataPages> Iterator for NestedIter<O, A, I> {
     type Item = Result<(NestedState, A)>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -190,4 +191,26 @@ impl<O: Offset, A: TraitBinaryArray<O>, I: DataPages> Iterator for ArrayIterator
             MaybeNext::More => self.next(),
         }
     }
+}
+
+/// Converts [`DataPages`] to an [`Iterator`] of [`TraitBinaryArray`]
+pub fn iter_to_arrays_nested<'a, O, A, I>(
+    iter: I,
+    init: Vec<InitNested>,
+    data_type: DataType,
+    chunk_size: Option<usize>,
+) -> NestedArrayIter<'a>
+where
+    I: 'a + DataPages,
+    A: TraitBinaryArray<O>,
+    O: Offset,
+{
+    Box::new(
+        NestedIter::<O, A, I>::new(iter, init, data_type, chunk_size).map(|result| {
+            let (mut nested, array) = result?;
+            let _ = nested.nested.pop().unwrap(); // the primitive
+            let array = Box::new(array) as Box<dyn Array>;
+            Ok((nested, array))
+        }),
+    )
 }

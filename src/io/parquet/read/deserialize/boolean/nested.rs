@@ -112,7 +112,7 @@ impl<'a> Decoder<'a> for BooleanDecoder {
 
 /// An iterator adapter over [`DataPages`] assumed to be encoded as boolean arrays
 #[derive(Debug)]
-pub struct ArrayIterator<I: DataPages> {
+pub struct NestedIter<I: DataPages> {
     iter: I,
     init: Vec<InitNested>,
     // invariant: items.len() == nested.len()
@@ -121,7 +121,7 @@ pub struct ArrayIterator<I: DataPages> {
     chunk_size: Option<usize>,
 }
 
-impl<I: DataPages> ArrayIterator<I> {
+impl<I: DataPages> NestedIter<I> {
     pub fn new(iter: I, init: Vec<InitNested>, chunk_size: Option<usize>) -> Self {
         Self {
             iter,
@@ -137,7 +137,7 @@ fn finish(data_type: &DataType, values: MutableBitmap, validity: MutableBitmap) 
     BooleanArray::new(data_type.clone(), values.into(), validity.into())
 }
 
-impl<I: DataPages> Iterator for ArrayIterator<I> {
+impl<I: DataPages> Iterator for NestedIter<I> {
     type Item = Result<(NestedState, BooleanArray)>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -158,4 +158,20 @@ impl<I: DataPages> Iterator for ArrayIterator<I> {
             MaybeNext::More => self.next(),
         }
     }
+}
+
+/// Converts [`DataPages`] to an [`Iterator`] of [`BooleanArray`]
+pub fn iter_to_arrays_nested<'a, I: 'a>(
+    iter: I,
+    init: Vec<InitNested>,
+    chunk_size: Option<usize>,
+) -> NestedArrayIter<'a>
+where
+    I: DataPages,
+{
+    Box::new(NestedIter::new(iter, init, chunk_size).map(|result| {
+        let (mut nested, array) = result?;
+        let _ = nested.nested.pop().unwrap(); // the primitive
+        Ok((nested, array.boxed()))
+    }))
 }
